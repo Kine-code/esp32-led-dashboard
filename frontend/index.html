@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>ESP32 Điều khiển LED</title>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    button {
+      padding: 10px 30px;
+      font-size: 16px;
+      margin: 10px;
+      cursor: pointer;
+    }
+    .status {
+      margin-left: 10px;
+      font-weight: bold;
+    }
+    table {
+      margin-top: 30px;
+      border-collapse: collapse;
+      width: 100%;
+    }
+    th, td {
+      padding: 8px;
+      border: 1px solid #ccc;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>LED Eaut</h1>
+
+  <div>
+    <button onclick="toggleLED('LED1')">LED1</button>
+    <span id="statusLED1" class="status">Trạng thái: chưa xác định</span>
+  </div>
+  <div>
+    <button onclick="toggleLED('LED2')">LED2</button>
+    <span id="statusLED2" class="status">Trạng thái: chưa xác định</span>
+  </div>
+
+  <h2>Lịch sử điều khiển</h2>
+  <table>
+    <thead>
+        <tr>
+          <th>LED</th>
+          <th>Trạng thái</th>
+          <th>Thời gian</th>
+      </tr>
+    </thead>
+    <tbody id="logBody"></tbody>
+  </table>
+
+  <script>
+    const serverAPI = "http://localhost:3000/api/logs";
+    let ledState = {
+      LED1: "off",
+      LED2: "off"
+    };
+
+    function toggleLED(led) {
+      const newState = ledState[led] === "on" ? "off" : "on";
+
+      fetch("http://localhost:3000/control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ led, state: newState })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === 'OK') {
+          ledState[led] = newState;
+          updateStatus(led);
+          logAction(led, newState);
+        } else {
+          alert("❌ Không thể gửi lệnh đến ESP32");
+        }
+      })
+      .catch((err) => {
+        console.error("❌ Lỗi kết nối tới ESP32:", err);
+        alert("❌ Lỗi kết nối tới ESP32");
+      });
+    }
+
+    function updateStatus(led) {
+      const span = document.getElementById(`status${led}`);
+      span.textContent = `Trạng thái: ${ledState[led].toUpperCase()}`;
+      span.style.color = ledState[led] === "on" ? "green" : "red";
+    }
+
+    function logAction(led, state) {
+      const tbody = document.getElementById("logBody");
+      const now = new Date();
+      const row = `<tr>
+        <td>${led}</td>
+        <td>${state.toUpperCase()}</td>
+        <td>${now.toLocaleTimeString()} ${now.toLocaleDateString()}</td>
+      </tr>`;
+      tbody.innerHTML = row + tbody.innerHTML;
+    }
+    async function loadLogsAndRestoreState() {
+    try {
+      const res = await fetch(serverAPI);
+      const logs = await res.json();
+      const tbody = document.getElementById("logBody");
+      tbody.innerHTML = "";
+
+      const latestState = {}; // lưu trạng thái cuối của từng LED
+
+      logs.forEach(log => {
+        // đổ dữ liệu vào bảng
+        const row = `<tr>
+          <td>${log.led}</td>
+          <td>${log.state.toUpperCase()}</td>
+          <td>${formatTime(log.timestamp)}</td>
+        </tr>`;
+        tbody.innerHTML += row;
+
+        // lấy trạng thái gần nhất của từng LED
+        if (!latestState[log.led]) {
+          latestState[log.led] = log.state;
+        }
+      });
+
+      // cập nhật trạng thái LED hiện tại
+      Object.keys(latestState).forEach(led => {
+        ledState[led] = latestState[led];
+        updateStatus(led);
+      });
+
+    } catch (err) {
+      console.warn("❌ Không thể tải log từ server:", err);
+    }
+  }
+
+  function formatTime(iso) {
+    const d = new Date(iso);
+    return `${d.toLocaleTimeString()} ${d.toLocaleDateString()}`;
+  }
+
+  // ✅ Load lại log + trạng thái khi mở trang
+  loadLogsAndRestoreState();
+  </script>
+</body>
+</html>
